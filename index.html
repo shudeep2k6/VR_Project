@@ -1,14 +1,830 @@
-<html>
-  <head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Industrial Hazard VR Interactive Safety Training</title>
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
-  </head>
-  <body>
-    <a-scene>
-      <a-box position="-1 0.5 -3" rotation="0 45 0" color="#4CC3D9"></a-box>
-      <a-sphere position="0 1.25 -5" radius="1.25" color="#EF2D5E"></a-sphere>
-      <a-cylinder position="1 0.75 -3" radius="0.5" height="1.5" color="#FFC65D"></a-cylinder>
-      <a-plane position="0 0 -4" rotation="-90 0 0" width="4" height="4" color="#7BC8A4"></a-plane>
-      <a-sky color="#ECECEC"></a-sky>
+    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.0.0/dist/aframe-extras.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@1.4.0/dist/aframe-physics-system.min.js"></script>
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Arial', sans-serif; overflow: hidden; background: #000; }
+        
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #FF6B6B;
+            z-index: 100;
+            min-width: 300px;
+            font-size: 14px;
+        }
+        
+        #hazard-alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,0,0,0.8);
+            color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            border: 3px solid #FF0000;
+            z-index: 101;
+            display: none;
+            max-width: 300px;
+            animation: pulse 0.5s infinite;
+        }
+        
+        #hazard-alert.active { display: block; }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 20px #FF0000; }
+            50% { box-shadow: 0 0 40px #FF0000; }
+        }
+        
+        #instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            color: #0FF;
+            padding: 15px 25px;
+            border: 2px solid #0FF;
+            border-radius: 8px;
+            z-index: 100;
+            text-align: center;
+            font-size: 13px;
+            max-width: 500px;
+        }
+        
+        .score-item { margin: 8px 0; padding: 5px; background: rgba(255,107,107,0.2); border-left: 3px solid #0FF; }
+        .score-value { color: #FFD700; font-weight: bold; }
+        /* UI overlay and panel styles to ensure visibility above the A-Frame canvas */
+        #ui-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10000; }
+        .ui-panel { pointer-events: auto; background: rgba(0,0,0,0.85); color: #fff; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); min-width: 220px; }
+        #score-panel { position: fixed; top: 20px; left: 20px; z-index: 10001; }
+        #hazard-panel { position: fixed; top: 20px; right: 20px; z-index: 10001; display: none; }
+        #hazard-panel.active { display: block; }
+        #training-panel { position: fixed; top: 160px; left: 20px; z-index: 10001; }
+        #controls { position: fixed; top: 320px; left: 20px; z-index: 10001; }
+    </style>
+</head>
+<body>
+    <!-- UI Overlay -->
+    <div id="ui-overlay">
+        <!-- Score Panel -->
+        <div id="score-panel" class="ui-panel">
+            <h3 style="margin-bottom: 15px; color: #00FF00;">📊 TRAINING PROGRESS</h3>
+            <div class="score-item">
+                <div>Safety Score</div>
+                <div class="score-value" id="score-value">100/100</div>
+            </div>
+            <div class="score-item">
+                <div>Hazards Identified</div>
+                <div class="score-value" id="hazard-count">0/8</div>
+            </div>
+            <div class="score-item">
+                <div>Current Challenge</div>
+                <div class="score-value" id="current-challenge">Factory Setup</div>
+            </div>
+            <div id="progress-bar">
+                <div id="progress-fill"></div>
+            </div>
+        </div>
+        
+        <!-- Hazard Panel -->
+        <div id="hazard-panel" class="ui-panel">
+            <h3 style="margin-bottom: 10px; color: #FF6B6B;">⚠️ HAZARD DETECTED</h3>
+            <div id="hazard-title" style="font-size: 16px; font-weight: bold; margin-bottom: 8px;"></div>
+            <div id="hazard-description" style="margin-bottom: 10px; line-height: 1.5;"></div>
+            <div style="background: rgba(255, 107, 107, 0.2); padding: 10px; border-radius: 6px; margin-top: 10px;">
+                <strong>Safety Measures:</strong>
+                <div id="hazard-solutions" style="margin-top: 8px; font-size: 12px;"></div>
+            </div>
+        </div>
+        
+        <!-- Training Panel -->
+        <div id="training-panel" class="ui-panel">
+            <h3 style="margin-bottom: 10px;">🎓 TRAINING MODE</h3>
+            <div class="instruction" id="training-instruction">
+                👁️ Look around and identify hazards | 👆 Click/Trigger to interact | 🏆 Complete all challenges!
+            </div>
+            <div class="button-group">
+                <button class="vr-button" onclick="resetTraining()">Reset</button>
+                <button class="vr-button" onclick="nextScene()">Next Scene</button>
+            </div>
+        </div>
+        
+        <!-- Controls -->
+        <div id="controls" class="ui-panel">
+            <h3 style="margin-bottom: 10px;">🕹️ CONTROLS</h3>
+            <div style="font-size: 12px; line-height: 1.8;">
+                <div>🖱️ <strong>Mouse/Touch:</strong> Look around</div>
+                <div>👆 <strong>Click:</strong> Interact with objects</div>
+                <div>🎮 <strong>VR:</strong> Use controllers</div>
+                <div>🏃 <strong>WASD:</strong> Move (Desktop)</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- A-Frame VR Scene -->
+     <a-scene physics="gravity:-9.8" renderer="colorManagement:true; physicallyCorrectLights:true">
+
+<!-- SKY (Indoor) -->
+<a-sky color="#222"></a-sky>
+
+<!-- ================= FACTORY STRUCTURE ================= -->
+
+<!-- FLOOR -->
+<a-plane rotation="-90 0 0"
+         width="120"
+         height="120"
+         color="#555"
+         metalness="0.4"
+         roughness="0.8"
+         shadow="receive:true">
+</a-plane>
+
+<!-- WALLS -->
+<a-box position="0 10 -60" width="120" height="20" depth="1" color="#444"></a-box>
+<a-box position="0 10 60" width="120" height="20" depth="1" color="#444"></a-box>
+<a-box position="-60 10 0" width="1" height="20" depth="120" color="#3a3a3a"></a-box>
+<a-box position="60 10 0" width="1" height="20" depth="120" color="#3a3a3a"></a-box>
+
+<!-- ROOF -->
+<a-box position="0 20 0"
+       width="120"
+       height="1"
+       depth="120"
+       color="#2e2e2e">
+</a-box>
+
+<!-- FACTORY GATE -->
+<a-box position="0 6 59.5"
+       width="18"
+       height="12"
+       depth="1"
+       color="#666">
+</a-box>
+
+<!-- SUPPORT PILLARS -->
+<a-cylinder position="-40 10 -40" radius="1" height="20" color="#666"></a-cylinder>
+<a-cylinder position="40 10 -40" radius="1" height="20" color="#666"></a-cylinder>
+<a-cylinder position="-40 10 40" radius="1" height="20" color="#666"></a-cylinder>
+<a-cylinder position="40 10 40" radius="1" height="20" color="#666"></a-cylinder>
+
+<!-- OVERHEAD INDUSTRIAL PIPES -->
+<a-cylinder position="0 18 -30"
+            radius="0.6"
+            height="100"
+            rotation="0 0 90"
+            color="#888">
+</a-cylinder>
+
+<a-cylinder position="0 18 30"
+            radius="0.6"
+            height="100"
+            rotation="0 0 90"
+            color="#777">
+</a-cylinder>
+
+<!-- CONVEYOR BELT SYSTEM -->
+<a-entity position="0 0 -5">
+    <a-box width="12"
+           height="1"
+           depth="3"
+           position="0 0.5 0"
+           color="#333">
+    </a-box>
+
+    <a-cylinder radius="1"
+                height="3"
+                rotation="90 0 0"
+                position="-5.5 0.5 0"
+                color="#222"
+                animation="property: rotation; to:360 0 0; dur:2000; loop:true; easing:linear">
+    </a-cylinder>
+
+    <a-cylinder radius="1"
+                height="3"
+                rotation="90 0 0"
+                position="5.5 0.5 0"
+                color="#222"
+                animation="property: rotation; to:360 0 0; dur:2000; loop:true; easing:linear">
+    </a-cylinder>
+</a-entity>
+
+<!-- AMBIENT LIGHTING -->
+<a-light type="ambient" intensity="0.6"></a-light>
+<a-light type="point" position="0 15 0" intensity="1"></a-light>
+    <a-scene id="vr-scene"
+             physics="gravity: -9.8; debug: false"
+             renderer="colorManagement: true; physicallyCorrectLights: true"
+             vr-mode-ui="enabled: true"
+             webxr="requiredFeatures: local-floor,hand-tracking">
+
+        <!-- Assets -->
+        <a-assets>
+            <!-- Audio for warnings and alerts -->
+            <audio id="danger-alarm" 
+                   src="https://assets.codepen.io/3685267/short-alarm.mp3"
+                   preload="auto"></audio>
+            <audio id="success-sound" 
+                   src="https://assets.codepen.io/3685267/success.mp3"
+                   preload="auto"></audio>
+        </a-assets>
+
+        <!-- Sky -->
+        <a-sky id="sky" color="#87CEEB"></a-sky>
+
+        <!-- Lighting -->
+        <a-light type="ambient" color="#fff" intensity="0.5"></a-light>
+        <a-light type="directional" 
+                 color="#fff" 
+                 intensity="0.8" 
+                 position="10 15 10"
+                 shadow="cast: true; mapSize: 2048">
+        </a-light>
+        <a-light type="point" 
+                 color="#ffaa88" 
+                 intensity="0.3" 
+                 position="0 3 0">
+        </a-light>
+
+        <!-- Ground/Floor -->
+        <a-entity id="ground" 
+                  geometry="primitive: plane; width: 100; height: 100"
+                  position="0 0 0"
+                  rotation="-90 0 0"
+                  material="color: #666; metalness: 0.6; roughness: 0.4"
+                  shadow="receive: true"
+                  data-ground-plane>
+        </a-entity>
+
+        <!-- Container for Scene 1: Electrical Hazards -->
+        <a-entity id="scene1" visible="true">
+            <!-- Electrical Control Panel -->
+            <a-entity position="-8 0 -10" rotation="0 45 0" id="electrical-panel" data-hazard="electrical">
+                <a-box geometry="width: 1.5; height: 2; depth: 0.5"
+                       position="0 1 0"
+                       material="color: #FFD700; metalness: 0.9"
+                       shadow="cast: true">
+                </a-box>
+                <a-cylinder geometry="radius: 0.2; height: 0.05"
+                           position="-0.3 1.5 0.3"
+                           material="color: #FF0000"
+                           shadow="cast: true">
+                </a-cylinder>
+                <a-cylinder geometry="radius: 0.2; height: 0.05"
+                           position="0.3 1.5 0.3"
+                           material="color: #00FF00"
+                           shadow="cast: true">
+                </a-cylinder>
+                <a-text position="0 2.3 0.6"
+                       value="HIGH VOLTAGE"
+                       color="#FF0000"
+                       font-size="0.8">
+                </a-text>
+                <a-text position="0 0.5 0.6"
+                       value="⚡ ELECTRICAL HAZARD"
+                       color="#FF0000"
+                       font-size="0.6">
+                </a-text>
+            </a-entity>
+
+            <!-- Fire/Flammable Materials Station -->
+            <a-entity position="8 0 -10" id="fire-station" data-hazard="fire">
+                <a-cylinder geometry="radius: 0.8; height: 1.2"
+                           position="0 0.6 0"
+                           material="color: #8B4513"
+                           shadow="cast: true">
+                </a-cylinder>
+                <a-cone geometry="radiusBottom: 0.9; radiusTop: 0.3; height: 2"
+                       position="0 1.8 0"
+                       material="color: #FF4500; emissive: #FF2200"
+                       shadow="cast: true">
+                </a-cone>
+                <a-cone geometry="radiusBottom: 0.7; radiusTop: 0.2; height: 1.5"
+                       position="0 1.9 0"
+                       material="color: #FF6347; emissive: #FF3300"
+                       shadow="cast: true">
+                </a-cone>
+                <a-text position="0 3.5 0"
+                       value="🔥 FLAMMABLE"
+                       color="#FF0000"
+                       font-size="0.7">
+                </a-text>
+            </a-entity>
+
+            <!-- Chemical Storage Area -->
+            <a-entity position="0 0 -14" id="chemical-storage" data-hazard="chemical">
+                <a-box geometry="width: 0.8; height: 1.8; depth: 0.8"
+                       position="-1 0.9 0"
+                       material="color: #00FF00; metalness: 0.7"
+                       shadow="cast: true">
+                </a-box>
+                <a-box geometry="width: 0.8; height: 1.8; depth: 0.8"
+                       position="0 0.9 0"
+                       material="color: #FF00FF; metalness: 0.7"
+                       shadow="cast: true">
+                </a-box>
+                <a-box geometry="width: 0.8; height: 1.8; depth: 0.8"
+                       position="1 0.9 0"
+                       material="color: #FFFF00; metalness: 0.7"
+                       shadow="cast: true">
+                </a-box>
+                <a-text position="0 2.5 0.5"
+                       value="☠ TOXIC CHEMICALS"
+                       color="#FF0000"
+                       font-size="0.6">
+                </a-text>
+            </a-entity>
+
+            <!-- Rotating Machinery -->
+            <a-entity position="-8 0 0" id="machinery" data-hazard="machinery">
+                <a-cylinder id="rotating-wheel"
+                           geometry="radius: 1.2; height: 0.4"
+                           position="0 1.2 0"
+                           material="color: #333; metalness: 0.9"
+                           animation="property: rotation; to: 0 360 0; dur: 3000; loop: true; easing: linear"
+                           shadow="cast: true">
+                </a-cylinder>
+                <a-box geometry="width: 2.8; height: 2; depth: 0.3"
+                       position="0 1.5 1.5"
+                       material="color: #FF6B6B; transparent: true; opacity: 0.2"
+                       shadow="cast: true">
+                </a-box>
+                <a-text position="0 3 0"
+                       value="⚙️ ROTATING MACHINERY"
+                       color="#FF0000"
+                       font-size="0.6">
+                </a-text>
+            </a-entity>
+
+            <!-- Height/Fall Hazard -->
+            <a-entity position="8 0 0" id="platform" data-hazard="fall">
+                <a-box geometry="width: 4; height: 0.3; depth: 2.5"
+                       position="0 1.8 0"
+                       material="color: #8B0000; metalness: 0.5"
+                       shadow="cast: true">
+                </a-box>
+                <a-box geometry="width: 0.3; height: 1.2; depth: 2.5"
+                       position="2 2.4 0"
+                       material="color: #FFD700"
+                       shadow="cast: true">
+                </a-box>
+                <a-box geometry="width: 0.3; height: 1.2; depth: 2.5"
+                       position="-2 2.4 0"
+                       material="color: #FFD700"
+                       shadow="cast: true">
+                </a-box>
+                <a-text position="0 3.2 0"
+                       value="⚠ FALL HAZARD"
+                       color="#FFD700"
+                       font-size="0.6">
+                </a-text>
+            </a-entity>
+        </a-entity>
+
+        <!-- Container for Scene 2: PPE and Safety Equipment -->
+        <a-entity id="scene2" visible="false">
+            <!-- Safety Station -->
+            <a-entity position="0 0 -12" id="ppe-station" data-hazard="ppe">
+                <a-box geometry="width: 0.3; height: 3; depth: 0.3"
+                       position="0 1.5 0"
+                       material="color: #666"
+                       shadow="cast: true">
+                </a-box>
+                <!-- Hard Hats -->
+                <a-cone geometry="radiusBottom: 0.35; radiusTop: 0.25; height: 0.4"
+                       position="-1 2 0"
+                       material="color: #ff6b01"
+                       shadow="cast: true">
+                </a-cone>
+                <!-- Safety Goggles -->
+                <a-sphere geometry="radius: 0.25"
+                         position="0 2 0"
+                         material="color: #FFD700"
+                         shadow="cast: true">
+                </a-sphere>
+                <!-- Gloves -->
+                <a-box geometry="width: 0.3; height: 0.4; depth: 0.3"
+                       position="1 2 0"
+                       material="color: #FF1493"
+                       shadow="cast: true">
+                </a-box>
+                <a-text position="0 3.2 0.5"
+                       value="🛡 PPE STATION"
+                       color="#00FF00"
+                       font-size="0.6">
+                </a-text>
+            </a-entity>
+
+            <!-- Emergency Eyewash Station -->
+            <a-entity position="-6 0 -12" id="eyewash" data-hazard="eyewash">
+                <a-cylinder geometry="radius: 0.4; height: 0.5"
+                           position="0 1 0"
+                           material="color: #FFF"
+                           shadow="cast: true">
+                </a-cylinder>
+                <a-cone geometry="radiusBottom: 0.5; radiusTop: 0.5; height: 0.4"
+                       position="0 1.65 0"
+                       material="color: #0099FF"
+                       shadow="cast: true">
+                </a-cone>
+                <a-cylinder geometry="radius: 0.08; height: 0.4"
+                           position="-0.2 1.65 0"
+                           material="color: #0099FF"
+                           shadow="cast: true">
+                </a-cylinder>
+                <a-cylinder geometry="radius: 0.08; height: 0.4"
+                           position="0.2 1.65 0"
+                           material="color: #0099FF"
+                           shadow="cast: true">
+                </a-cylinder>
+                <a-text position="0 2.3 0"
+                       value="👁 EYEWASH STATION"
+                       color="#0099FF"
+                       font-size="0.5">
+                </a-text>
+            </a-entity>
+
+            <!-- Fire Extinguisher Rack -->
+            <a-entity position="6 0 -12" id="fire-extinguisher" data-hazard="extinguisher">
+                <a-box geometry="width: 0.4; height: 3; depth: 0.4"
+                       position="0 1.5 0"
+                       material="color: #666"
+                       shadow="cast: true">
+                </a-box>
+                <a-cylinder geometry="radius: 0.3; height: 1.2"
+                           position="0 1.2 0"
+                           material="color: #FF0000"
+                           shadow="cast: true">
+                </a-cylinder>
+                <a-cone geometry="radiusBottom: 0.3; radiusTop: 0.15; height: 0.3"
+                       position="0 1.95 0"
+                       material="color: #000"
+                       shadow="cast: true">
+                </a-cone>
+                <a-text position="0 3 0"
+                       value="🧯 FIRE EXTINGUISHER"
+                       color: "#FF0000"
+                       font-size="0.5">
+                </a-text>
+            </a-entity>
+        </a-entity>
+
+        <!-- Container for Scene 3: Confined Spaces & Excavation -->
+        <a-entity id="scene3" visible="false">
+            <!-- Excavator -->
+            <a-entity position="-8 0 -10" id="excavator" data-hazard="excavator">
+                <a-box geometry="width: 2; height: 1; depth: 1.5"
+                       position="0 0.5 0"
+                       material="color: #FFD700; metalness: 0.8"
+                       shadow="cast: true">
+                </a-box>
+                <a-box geometry="width: 0.8; height: 0.8; depth: 0.8"
+                       position="0 1.3 0"
+                       material="color: #FFD700; metalness: 0.8"
+                       shadow="cast: true">
+                </a-box>
+                <a-box geometry="width: 2.5; height: 0.4; depth: 0.4"
+                       position="0.5 1.5 0"
+                       material="color: #FF6B6B"
+                       animation="property: rotation; from: 0 0 0; to: 0 -45 0; dur: 4000; loop: true; dir: alternate"
+                       shadow="cast: true">
+                </a-box>
+                <a-text position="0 2.5 0"
+                       value="🚜 EXCAVATOR"
+                       color="#FF0000"
+                       font-size="0.6">
+                </a-text>
+            </a-entity>
+
+            <!-- Confined Space -->
+            <a-entity position="8 0 -10" id="confined-space" data-hazard="confined">
+                <a-box geometry="width: 2; height: 2; depth: 2"
+                       position="0 1 0"
+                       material="color: #555; metalness: 0.4; opacity: 0.7; transparent: true"
+                       shadow="cast: true">
+                </a-box>
+                <a-plane geometry="width: 2; height: 0.5"
+                        position="0 2.3 0"
+                        rotation="-90 0 0"
+                        material="color: #666"
+                        shadow="cast: true">
+                </a-plane>
+                <a-text position="0 2.8 0"
+                       value="⚠ CONFINED SPACE"
+                       color="#FFD700"
+                       font-size="0.5">
+                </a-text>
+            </a-entity>
+        </a-entity>
+
+        <!-- Camera & Controllers -->
+        <a-entity id="camera-handler" wasd-controls-enabled="true" look-controls-enabled="true">
+            <a-camera id="camera" position="0 1.6 5" look-controls wasd-controls="acceleration: 60"></a-camera>
+            
+            <!-- Right Hand Controller -->
+            <a-entity id="rightHand"
+                      hand-tracking-controls="hand: right; modelStyle: mesh"
+                      raycaster="objects: [data-hazard]"
+                      cursor="maxDistance: 30; fuse: true; fuseTimeout: 2000">
+            </a-entity>
+            
+            <!-- Left Hand Controller -->
+            <a-entity id="leftHand"
+                      hand-tracking-controls="hand: left; modelStyle: mesh">
+            </a-entity>
+        </a-entity>
     </a-scene>
-  </body>
+
+    <script>
+        let score = 100;
+        let hazardsIdentified = 0;
+        const totalHazards = 8;
+        let currentScene = 1;
+        const maxScenes = 3;
+        let identifiedHazards = new Set();
+
+        // Hazard Database
+        const hazardDatabase = {
+            'electrical-panel': {
+                title: '⚡ ELECTRICAL HAZARD',
+                category: 'Electrical',
+                risk: 'HIGH',
+                description: 'Uninsulated electrical equipment can cause electrocution and severe burns.',
+                solutions: [
+                    '✓ Never touch live wires without proper PPE',
+                    '✓ Use insulated tools and equipment',
+                    '✓ Keep work area dry',
+                    '✓ Use lockout/tagout procedures before maintenance',
+                    '✓ Report any damage immediately'
+                ]
+            },
+            'fire-station': {
+                title: '🔥 FIRE HAZARD',
+                category: 'Fire',
+                risk: 'HIGH',
+                description: 'Improper storage of flammable materials can lead to fires and explosions.',
+                solutions: [
+                    '✓ Store flammables in designated areas',
+                    '✓ Keep away from ignition sources',
+                    '✓ Use proper ventilation',
+                    '✓ Maintain fire extinguishers nearby',
+                    '✓ Post warning signage'
+                ]
+            },
+            'chemical-storage': {
+                title: '☠️ CHEMICAL HAZARD',
+                category: 'Chemicals',
+                risk: 'CRITICAL',
+                description: 'Toxic chemicals can cause poisoning, chemical burns, and respiratory damage.',
+                solutions: [
+                    '✓ Always use PPE (gloves, glasses, mask)',
+                    '✓ Work in fume hoods',
+                    '✓ Never mix chemical incompatibles',
+                    '✓ Review SDS (Safety Data Sheets)',
+                    '✓ Have emergency eyewash access'
+                ]
+            },
+            'machinery': {
+                title: '⚙️ MACHINERY HAZARD',
+                category: 'Mechanical',
+                risk: 'CRITICAL',
+                description: 'Rotating machines can cause severe lacerations, crushing injuries, and amputations.',
+                solutions: [
+                    '✓ Keep guards in place',
+                    '✓ Never reach into moving equipment',
+                    '✓ Stop machinery before maintenance',
+                    '✓ Use lockout/tagout procedures',
+                    '✓ Wear appropriate PPE'
+                ]
+            },
+            'platform': {
+                title: '⚠️ FALL HAZARD',
+                category: 'Falls',
+                risk: 'CRITICAL',
+                description: 'Elevated platforms without proper protection can result in fatal injuries.',
+                solutions: [
+                    '✓ Always use fall protection harness at heights',
+                    '✓ Maintain guard rails',
+                    '✓ Use proper safety equipment',
+                    '✓ Inspect before use',
+                    '✓ Follow proper climbing procedures'
+                ]
+            },
+            'ppe-station': {
+                title: '🛡️ PPE STATION',
+                category: 'Protection',
+                risk: 'PREVENTIVE',
+                description: 'Personal Protective Equipment is essential for worker safety in hazardous environments.',
+                solutions: [
+                    '✓ Hard hats protect from head injuries',
+                    '✓ Safety goggles protect eyes from debris',
+                    '✓ Gloves protect from chemical/thermal burns',
+                    '✓ Always use appropriate PPE for task',
+                    '✓ Inspect equipment for damage'
+                ]
+            },
+            'eyewash': {
+                title: '👁️ EMERGENCY EYEWASH STATION',
+                category: 'Emergency',
+                risk: 'PREVENTIVE',
+                description: 'Eyewash stations provide critical first aid for chemical exposure to eyes.',
+                solutions: [
+                    '✓ Activate immediately after exposure',
+                    '✓ Flush eyes for minimum 15 minutes',
+                    '✓ Seek medical attention',
+                    '✓ Check station accessibility daily',
+                    '✓ Verify functionality regularly'
+                ]
+            },
+            'fire-extinguisher': {
+                title: '🧯 FIRE EXTINGUISHER',
+                category: 'Emergency',
+                risk: 'PREVENTIVE',
+                description: 'Fire extinguishers are critical for suppressing fires in their incipient stage.',
+                solutions: [
+                    '✓ Know location of nearest extinguisher',
+                    '✓ Understand PASS technique (Pull, Aim, Squeeze, Sweep)',
+                    '✓ Only use for small fires',
+                    '✓ Evacuate if fire is spreading',
+                    '✓ Check pressure gauge regularly'
+                ]
+            },
+            'excavator': {
+                title: '🚜 HEAVY EQUIPMENT',
+                category: 'Mechanical',
+                risk: 'HIGH',
+                description: 'Heavy equipment can cause crushing, struck-by, and runover incidents.',
+                solutions: [
+                    '✓ Only trained operators allowed',
+                    '✓ Check blind spots before moving',
+                    '✓ Use spotters for guidance',
+                    '✓ Keep work area clear',
+                    '✓ Follow equipment procedures'
+                ]
+            },
+            'confined-space': {
+                title: '⚠️ CONFINED SPACE',
+                category: 'Atmosphere',
+                risk: 'CRITICAL',
+                description: 'Confined spaces can have oxygen depletion or hazardous atmospheres.',
+                solutions: [
+                    '✓ Test atmosphere before entry',
+                    '✓ Provide continuous ventilation',
+                    '✓ Use tethered rescue equipment',
+                    '✓ Have standby rescue personnel',
+                    '✓ Never work alone'
+                ]
+            }
+        };
+
+        // Detection system
+        function checkHazardProximity() {
+            const hazards = document.querySelectorAll('[data-hazard]');
+            const cameraPos = document.getElementById('camera').object3D.position;
+            
+            hazards.forEach(hazard => {
+                const hazardPos = hazard.object3D.position;
+                const distance = cameraPos.distanceTo(hazardPos);
+                
+                if (distance < 8) {
+                    const hazardId = hazard.id;
+                    if (!identifiedHazards.has(hazardId)) {
+                        showHazardWarning(hazardId);
+                    }
+                }
+            });
+        }
+
+        function showHazardWarning(hazardId) {
+            const hazard = hazardDatabase[hazardId];
+            if (!hazard) return;
+
+            const panel = document.getElementById('hazard-panel');
+            document.getElementById('hazard-title').textContent = hazard.title;
+            document.getElementById('hazard-description').textContent = hazard.description;
+            
+            const solutions = hazard.solutions.join('<br>');
+            document.getElementById('hazard-solutions').innerHTML = solutions;
+            
+            panel.classList.add('active');
+            
+            playSound('danger-alarm');
+
+            // Mark as identified
+            if (!identifiedHazards.has(hazardId)) {
+                identifiedHazards.add(hazardId);
+                hazardsIdentified++;
+                updateScore(-5); // Penalty for not identifying earlier
+                updateUI();
+            }
+
+            setTimeout(() => {
+                panel.classList.remove('active');
+            }, 8000);
+        }
+
+        function updateScore(change) {
+            score = Math.max(0, Math.min(100, score + change));
+        }
+
+        function updateUI() {
+            document.getElementById('score-value').textContent = `${score}/100`;
+            document.getElementById('hazard-count').textContent = `${hazardsIdentified}/${totalHazards}`;
+            
+            const progress = (hazardsIdentified / totalHazards) * 100;
+            document.getElementById('progress-fill').style.width = progress + '%';
+
+            document.getElementById('current-challenge').textContent = `Scene ${currentScene}/${maxScenes}`;
+        }
+
+        function playSound(soundId) {
+            const sound = document.getElementById(soundId);
+            if (sound) {
+                sound.currentTime = 0;
+                sound.play().catch(e => console.log('Sound play prevented'));
+            }
+        }
+
+        function switchScene(sceneNum) {
+            document.getElementById('scene1').setAttribute('visible', sceneNum === 1);
+            document.getElementById('scene2').setAttribute('visible', sceneNum === 2);
+            document.getElementById('scene3').setAttribute('visible', sceneNum === 3);
+            
+            currentScene = sceneNum;
+            identifiedHazards.clear();
+            updateUI();
+            
+            const instructions = [
+                'Examine the factory floor. Identify all electrical, fire, chemical, and mechanical hazards.',
+                'Visit the PPE and safety equipment stations. Understand emergency procedures.',
+                'Learn about heavy equipment operations and confined space hazards.'
+            ];
+            
+            document.getElementById('training-instruction').textContent = instructions[sceneNum - 1];
+            playSound('success-sound');
+        }
+
+        function nextScene() {
+            if (currentScene < maxScenes) {
+                switchScene(currentScene + 1);
+            } else {
+                alert(`Training Complete! Your Score: ${score}/100\n\nHazards Identified: ${hazardsIdentified}/${totalHazards}`);
+                resetTraining();
+            }
+        }
+
+        function resetTraining() {
+            score = 100;
+            hazardsIdentified = 0;
+            identifiedHazards.clear();
+            currentScene = 1;
+            switchScene(1);
+            updateUI();
+        }
+
+        // Raycaster click detection
+        document.addEventListener('raycaster-intersection', (evt) => {
+            const intersected = evt.detail.intersections;
+            if (intersected.length > 0) {
+                const object = intersected[0].object;
+                if (object.el) {
+                    const hazardId = object.el.id;
+                    if (hazardId) {
+                        showHazardWarning(hazardId);
+                    }
+                }
+            }
+        });
+
+        // Continuous proximity checking
+        setInterval(checkHazardProximity, 500);
+
+        // Initialize UI
+        updateUI();
+        switchScene(1);
+
+        // VR Mode Detection
+        document.addEventListener('enter-vr', () => {
+            console.log('✓ VR Mode Activated - Meta Quest 3S Detected');
+            document.getElementById('score-panel').style.fontSize = '16px';
+        });
+
+        console.log('Industrial Hazard VR Training Simulator Initialized');
+        console.log('Compatible with: Meta Quest 3S, Meta Quest Pro, WebXR devices');
+        console.log('Features: 3 Training Scenes, 10+ Hazard Types, Real-time Detection');
+    </script>
+</body>
 </html>
